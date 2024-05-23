@@ -1,0 +1,353 @@
+const express = require('express');
+const OpenAI = require('openai');
+const openai = require('./services/openaiService');
+
+const app = express();
+const port = 5000;
+const cors = require('cors');
+
+const apiKey = "sk-proj-biOewhQZXCc3kVDTFtOBT3BlbkFJrjVbZKpTw7hRYP05rVZc";
+const assistantId = "asst_J5iRBRot76D9JpOxIA2mpFXo";
+
+app.use(express.json());
+app.use(cors());
+
+// Endpoint to create a thread
+app.post('/threads', async (req, res) => {
+    try {
+        const thread = await openai.beta.threads.create();
+        console.log("Created thread:", thread);
+        res.json(thread);
+    } catch (error) {
+        console.error("Error creating thread:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint to create a message in a thread
+app.post('/threads/:threadId/messages', async (req, res) => {
+    const { threadId } = req.params;
+    const { role, content } = req.body;
+
+    console.log('Received request to create message in thread:', threadId);
+    console.log('Request body:', req.body);
+
+    try {
+        // Check if there's an active run in the thread
+        const activeRuns = await openai.beta.threads.runs.list(threadId, { status: 'active' });
+        if (activeRuns.body.data.length > 0) {
+            const activeRunIds = activeRuns.body.data.map(run => run.id);
+            console.error(`Can't add messages to ${threadId} while the following runs are active: ${activeRunIds.join(', ')}`);
+            return res.status(400).json({ error: `Can't add messages to ${threadId} while runs are active: ${activeRunIds.join(', ')}` });
+        }
+
+        // Create message in the thread
+        const message = await openai.beta.threads.messages.create(threadId, { role, content });
+        console.log("Message created successfully in thread:", threadId);
+        console.log("Message created:", message);
+
+        res.json(message);
+    } catch (error) {
+        console.error("Error creating message in thread:", threadId);
+        console.error("Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint to start a streamed run when a thread is created
+app.post('/threads/:threadId/runs', async (req, res) => {
+    const { threadId } = req.params;
+
+    try {
+        // Create a streamed run
+        const run = openai.beta.threads.runs.stream(threadId, {
+            assistant_id: assistantId
+        });
+
+        // Event listeners to handle streamed response
+        // Event listeners to handle streamed response
+        run.on('textCreated', (text) => {
+            process.stdout.write('\nassistant > ');
+            process.stdout.write(text.value);
+        });
+
+        run.on('textDelta', (textDelta, snapshot) => {
+            process.stdout.write(textDelta.value);
+        });
+
+        run.on('toolCallCreated', (toolCall) => {
+            process.stdout.write(`\nassistant > ${toolCall.type}\n\n`);
+        });
+
+        run.on('toolCallDelta', (toolCallDelta, snapshot) => {
+            if (toolCallDelta.type === 'code_interpreter') {
+                if (toolCallDelta.code_interpreter.input) {
+                    process.stdout.write(toolCallDelta.code_interpreter.input);
+                }
+                if (toolCallDelta.code_interpreter.outputs) {
+                    process.stdout.write("\noutput >\n");
+                    toolCallDelta.code_interpreter.outputs.forEach(output => {
+                        if (output.type === "logs") {
+                            process.stdout.write(`\n${output.logs}\n`);
+                        }
+                    });
+                }
+            }
+            // Handle other tool call types if needed
+        });
+        console.log("Streamed run started.");
+        res.json({ message: "Streamed run started.", threadId, runId: run.id, assistantId, status: "in_progress", createdAt: run.created_at, expiresAt: run.expires_at, instructions: run.instructions, model: run.model, temperature: run.temperature, topP: run.top_p, truncationStrategy: run.truncation_strategy, toolChoice: run.tool_choice });
+    } catch (error) {
+        console.error("Error starting streamed run:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+
+
+
+// Endpoint to list messages in a thread
+app.get('/threads/:threadId/messages', async (req, res) => {
+    try {
+        const { threadId } = req.params;
+        const messages = await openai.beta.threads.messages.list(threadId);
+        console.log("List of messages:", messages.body.data);
+
+        res.json(messages.body.data);
+    } catch (error) {
+        console.error("Error listing messages:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+});
+
+old code 
+const express = require('express');
+const OpenAI = require('openai');
+const openai = require('./services/openaiService');
+
+
+const app = express();
+const port = 5000;
+const cors = require('cors');
+
+
+const apiKey = "sk-proj-biOewhQZXCc3kVDTFtOBT3BlbkFJrjVbZKpTw7hRYP05rVZc";
+const assistantId = "asst_J5iRBRot76D9JpOxIA2mpFXo"; // Your Assistant ID
+
+// const openai = new OpenAI({
+//     apiKey: apiKey,
+// });
+
+app.use(express.json());
+// Use CORS middleware
+app.use(cors());
+
+// Endpoint to retrieve assistant
+app.get('/assistant', (req, res) => {
+    openai.beta.assistants.retrieve(assistantId)
+        .then(assistant => {
+            console.log("Retrieved assistant:", assistant);
+            res.json(assistant);
+        })
+        .catch(error => {
+            console.error("Error retrieving assistant:", error);
+            res.status(500).json({ error: error.message });
+        });
+});
+
+// Endpoint to create thread
+app.post('/threads', (req, res) => {
+    openai.beta.threads.create()
+        .then(thread => {
+            console.log("Created thread:", thread);
+            res.json(thread);
+        })
+        .catch(error => {
+            console.error("Error creating thread:", error);
+            res.status(500).json({ error: error.message });
+        });
+});
+
+// Endpoint to create a message and trigger assistant run
+app.post('/threads/:threadId/messages', async (req, res) => {
+    const { threadId } = req.params; // Get the threadId from the request parameters
+    const { role, content } = req.body;
+
+    console.log('Received request to create message in thread:', threadId);
+    console.log('Request body:', req.body);
+
+    try {
+        
+        // Check if there's an active run in the thread
+        const activeRuns = await openai.beta.threads.runs.list(threadId, { status: 'active' });
+        if (activeRuns.body.data.length > 0) {
+            // If there's an active run, return an error
+            const activeRunIds = activeRuns.body.data.map(run => run.id);
+            console.error(`Can't add messages to ${threadId} while the following runs are active: ${activeRunIds.join(', ')}`);
+            return res.status(400).json({ error: `Can't add messages to ${threadId} while runs are active: ${activeRunIds.join(', ')}` });
+        }
+
+        // No active runs, proceed to create message
+        const message = await openai.beta.threads.messages.create(threadId, { role, content });
+        console.log("Message created successfully in thread:", threadId);
+        console.log("Message created:", message);
+
+        // Run assistant
+        const run = await openai.beta.threads.runs.create(threadId, { assistant_id: assistantId });
+        console.log("Run started:", run);
+
+
+
+        // Fetch updated messages
+        const messages = await openai.beta.threads.messages.list(threadId);
+        console.log("List of messages:", messages.body.data);
+
+        // Extract the assistant's response message content
+        const assistantMessage = messages.body.data.find(msg => msg.role === 'assistant');
+        const responseContent = assistantMessage ? assistantMessage.content.map(part => part.text?.value).join(' ') : 'No response from assistant';
+
+        // Return the user's message and the assistant's response
+        res.json([{ role: 'user', content: content }, { role: 'assistant', content: responseContent }]);
+    } catch (error) {
+        console.error("Error creating message or running assistant in thread:", threadId);
+        console.error("Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+
+// // Endpoint to run assistant
+// app.post('/threads/:threadId/runs', (req, res) => {
+//     const { threadId } = req.params; // Get the threadId from the request parameters
+
+//     openai.beta.threads.runs.create(threadId, { assistant_id: assistantId })
+//         .then(run => {
+//             console.log("Run started:", run);
+//             res.json(run);
+//         })
+//         .catch(error => {
+//             console.error("Error starting run:", error);
+//             res.status(500).json({ error: error.message });
+//         });
+// });
+
+
+// // Endpoint to list messages in a thread
+// app.get('/threads/:threadId/messages', async (req, res) => {
+//     try {
+//         const { threadId } = req.params;
+//         const messages = await openai.beta.threads.messages.list(threadId);
+//         console.log("List of messages:", messages.body.data);
+
+//         // Trigger assistant run when a new message is fetched
+//         await openai.beta.threads.runs.create(threadId, { assistant_id: assistantId });
+
+//         // Iterate over messages and extract the content value of type "text"
+//         const messageContents = messages.body.data.map(message => {
+//             if (message.content && Array.isArray(message.content)) {
+//                 const textContent = message.content.find(content => content.type === 'text');
+//                 if (textContent && textContent.text && textContent.text.value) {
+//                     return textContent.text.value;
+//                 }
+//             }
+//             return null;
+//         }); 
+
+//         res.json(messageContents.filter(Boolean)); // Filter out null values and send the content values
+//     } catch (error) {
+//         console.error("Error listing messages:", error);
+//         res.status(500).json({ error: error.message });
+//     }
+// });
+
+// Endpoint to list steps logs for a run in a thread
+app.get('/threads/:threadId/runs/:runId/steps', async (req, res) => {
+    try {
+        const { threadId, runId } = req.params;
+        const logs = await openai.beta.threads.runs.steps.list(threadId, runId);
+        console.log("List of steps logs:", logs.body.data);
+        res.json(logs.body.data);
+    } catch (error) {
+        console.error("Error listing steps logs:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint to retrieve a specific run in a thread
+app.get('/threads/:threadId/runs/:runId', async (req, res) => {
+    try {
+        const { threadId, runId } = req.params;
+        const run = await openai.beta.threads.runs.retrieve(threadId, runId);
+        console.log("Retrieved run:", run);
+        res.json(run);
+    } catch (error) {
+        console.error("Error retrieving run:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+
+
+// Endpoint to list messages in a thread
+app.get('/threads/:threadId/messages', async (req, res) => {
+    try {
+        const { threadId } = req.params;
+        const messages = await openai.beta.threads.messages.list(threadId);
+        console.log("List of messages:", messages.body.data);
+
+        res.json(messages.body.data);
+    } catch (error) {
+        console.error("Error listing messages:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+// Start a streamed run when a thread is created
+app.post('/threads/:threadId/runs', async (req, res) => {
+    const { threadId } = req.params;
+
+    try {
+        // Create a streamed run
+        const run = openai.beta.threads.runs.stream(threadId, {
+            assistant_id: assistantId
+        });
+
+        // Event listeners to handle streamed response
+        run.on('textCreated', (text) => process.stdout.write('\nassistant > '));
+        run.on('textDelta', (textDelta, snapshot) => process.stdout.write(textDelta.value));
+        run.on('toolCallCreated', (toolCall) => process.stdout.write(`\nassistant > ${toolCall.type}\n\n`));
+        run.on('toolCallDelta', (toolCallDelta, snapshot) => {
+            if (toolCallDelta.type === 'code_interpreter') {
+                if (toolCallDelta.code_interpreter.input) {
+                    process.stdout.write(toolCallDelta.code_interpreter.input);
+                }
+                if (toolCallDelta.code_interpreter.outputs) {
+                    process.stdout.write("\noutput >\n");
+                    toolCallDelta.code_interpreter.outputs.forEach(output => {
+                        if (output.type === "logs") {
+                            process.stdout.write(`\n${output.logs}\n`);
+                        }
+                    });
+                }
+            }
+        });
+
+        console.log("Streamed run started.");
+        res.json({ message: "Streamed run started." });
+    } catch (error) {
+        console.error("Error starting streamed run:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+
+app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+});
