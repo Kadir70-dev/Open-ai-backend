@@ -6,7 +6,7 @@ const { connectDB } = require('./db');
 
 const router = express.Router();
 
-const assistantId = 'asst_SYSqA2rUDpgUrSH4aHh2InI3';
+const assistantId = process.env.assistantId;
 
 router.post('/message', async (req, res) => {
   try {

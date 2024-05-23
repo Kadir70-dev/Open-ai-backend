@@ -1,10 +1,7 @@
 
 const OpenAI = require('openai');
 
-const apiKey = 'sk-proj-biOewhQZXCc3kVDTFtOBT3BlbkFJrjVbZKpTw7hRYP05rVZc';
 
-const openai = new OpenAI({
-  apiKey: apiKey,
-});
+const openai = OpenAI(process.env.apiKey);
 
 module.exports = openai;
