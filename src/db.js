@@ -1,7 +1,7 @@
 const { MongoClient } = require('mongodb');
 
 const url = '';
-const dbName = 'chatgpt';
+const dbName = '';
 
 let db;
 
